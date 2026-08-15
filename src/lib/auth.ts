@@ -169,14 +169,14 @@ export function isBlockedPortalUser(user?: UserBaseResponse | null): boolean {
 
 /**
  * Redirection post-login selon le type de compte.
- * ATHLETE / PARENT → page accès refusé (pas le dashboard staff).
+ * ATHLETE / PARENT → page accès refusé (message app mobile).
  */
 export function getPostLoginPath(user: UserBaseResponse): string {
   if (isSuperAdmin(user)) {
     return "/admin/clubs";
   }
   if (!canAccessStaffPortal(user)) {
-    return "/access-denied";
+    return "/access-denied?reason=mobile";
   }
   return "/";
 }
