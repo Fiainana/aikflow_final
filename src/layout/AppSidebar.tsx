@@ -12,7 +12,6 @@ import {
   ChevronDownIcon,
   GridIcon,
   HorizontaLDots,
-  ListIcon,
   PieChartIcon,
   TableIcon,
   UserCircleIcon,
@@ -77,9 +76,68 @@ const superAdminNavItems: NavItem[] = [
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
-  const { isSuperAdmin, isAuthenticated } = useAuth();
+  const { isSuperAdmin, isAuthenticated, isLoading: authLoading } = useAuth();
 
-  const navItems = isSuperAdmin ? superAdminNavItems : clubNavItems;
+  // Évite le mismatch SSR/client : localStorage n'existe pas côté serveur
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    setReady(true);
+  }, []);
+
+  const showRoleNav = ready && !authLoading;
+  const navItems = showRoleNav && isSuperAdmin ? superAdminNavItems : clubNavItems;
+  const homeHref =
+    showRoleNav && isSuperAdmin ? "/admin/clubs" : "/";
+  const sectionLabel =
+    showRoleNav && isSuperAdmin ? "Super Admin" : "Club";
+
+  const [openSubmenu, setOpenSubmenu] = useState<{
+    type: "main" | "others";
+    index: number;
+  } | null>(null);
+  const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>(
+    {}
+  );
+  const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const isActive = useCallback(
+    (path: string) => path === pathname,
+    [pathname]
+  );
+
+  const handleSubmenuToggle = (index: number, menuType: "main" | "others") => {
+    setOpenSubmenu((prev) => {
+      if (prev && prev.type === menuType && prev.index === index) return null;
+      return { type: menuType, index };
+    });
+  };
+
+  useEffect(() => {
+    let submenuMatched = false;
+    navItems.forEach((nav, index) => {
+      if (nav.subItems) {
+        nav.subItems.forEach((subItem) => {
+          if (isActive(subItem.path)) {
+            setOpenSubmenu({ type: "main", index });
+            submenuMatched = true;
+          }
+        });
+      }
+    });
+    if (!submenuMatched) setOpenSubmenu(null);
+  }, [pathname, isActive, navItems]);
+
+  useEffect(() => {
+    if (openSubmenu !== null) {
+      const key = `${openSubmenu.type}-${openSubmenu.index}`;
+      if (subMenuRefs.current[key]) {
+        setSubMenuHeight((prev) => ({
+          ...prev,
+          [key]: subMenuRefs.current[key]?.scrollHeight || 0,
+        }));
+      }
+    }
+  }, [openSubmenu]);
 
   const renderMenuItems = (
     items: NavItem[],
@@ -90,6 +148,7 @@ const AppSidebar: React.FC = () => {
         <li key={nav.name}>
           {nav.subItems ? (
             <button
+              type="button"
               onClick={() => handleSubmenuToggle(index, menuType)}
               className={`menu-item group  ${
                 openSubmenu?.type === menuType && openSubmenu?.index === index
@@ -111,7 +170,7 @@ const AppSidebar: React.FC = () => {
                 {nav.icon}
               </span>
               {(isExpanded || isHovered || isMobileOpen) && (
-                <span className={`menu-item-text`}>{nav.name}</span>
+                <span className="menu-item-text">{nav.name}</span>
               )}
               {(isExpanded || isHovered || isMobileOpen) && (
                 <ChevronDownIcon
@@ -142,7 +201,7 @@ const AppSidebar: React.FC = () => {
                   {nav.icon}
                 </span>
                 {(isExpanded || isHovered || isMobileOpen) && (
-                  <span className={`menu-item-text`}>{nav.name}</span>
+                  <span className="menu-item-text">{nav.name}</span>
                 )}
               </Link>
             )
@@ -183,54 +242,6 @@ const AppSidebar: React.FC = () => {
     </ul>
   );
 
-  const [openSubmenu, setOpenSubmenu] = useState<{
-    type: "main" | "others";
-    index: number;
-  } | null>(null);
-  const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>(
-    {}
-  );
-  const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  const isActive = useCallback(
-    (path: string) => path === pathname,
-    [pathname]
-  );
-
-  useEffect(() => {
-    let submenuMatched = false;
-    navItems.forEach((nav, index) => {
-      if (nav.subItems) {
-        nav.subItems.forEach((subItem) => {
-          if (isActive(subItem.path)) {
-            setOpenSubmenu({ type: "main", index });
-            submenuMatched = true;
-          }
-        });
-      }
-    });
-    if (!submenuMatched) setOpenSubmenu(null);
-  }, [pathname, isActive, navItems]);
-
-  useEffect(() => {
-    if (openSubmenu !== null) {
-      const key = `${openSubmenu.type}-${openSubmenu.index}`;
-      if (subMenuRefs.current[key]) {
-        setSubMenuHeight((prev) => ({
-          ...prev,
-          [key]: subMenuRefs.current[key]?.scrollHeight || 0,
-        }));
-      }
-    }
-  }, [openSubmenu]);
-
-  const handleSubmenuToggle = (index: number, menuType: "main" | "others") => {
-    setOpenSubmenu((prev) => {
-      if (prev && prev.type === menuType && prev.index === index) return null;
-      return { type: menuType, index };
-    });
-  };
-
   return (
     <aside
       className={`fixed mt-16 flex flex-col lg:mt-0 top-0 px-5 left-0 bg-white dark:bg-gray-950 dark:border-gray-800 text-gray-900 h-screen transition-all duration-300 ease-in-out z-50 border-r border-gray-200
@@ -251,7 +262,7 @@ const AppSidebar: React.FC = () => {
           !isExpanded && !isHovered ? "lg:justify-center" : "justify-start"
         }`}
       >
-        <Link href={isSuperAdmin ? "/admin/clubs" : "/"}>
+        <Link href={homeHref}>
           {isExpanded || isHovered || isMobileOpen ? (
             <>
               <Image
@@ -291,17 +302,24 @@ const AppSidebar: React.FC = () => {
                 }`}
               >
                 {isExpanded || isHovered || isMobileOpen ? (
-                  isSuperAdmin ? "Super Admin" : "Club"
+                  sectionLabel
                 ) : (
                   <HorizontaLDots />
                 )}
               </h2>
-              {isAuthenticated ? (
+              {!showRoleNav ? (
+                <div className="flex justify-center py-4">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+                </div>
+              ) : isAuthenticated ? (
                 renderMenuItems(navItems, "main")
               ) : (
                 <ul className="flex flex-col gap-2">
                   <li>
-                    <Link href="/signin" className="menu-item menu-item-inactive">
+                    <Link
+                      href="/signin"
+                      className="menu-item menu-item-inactive"
+                    >
                       Connexion
                     </Link>
                   </li>
