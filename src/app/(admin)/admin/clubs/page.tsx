@@ -2,17 +2,24 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { adminorgsListClubs } from "@/api-client";
+import { adminorgsListClubs, adminorgsUpdateClub } from "@/api-client";
 import type { OrganizationResponse, ErrorDetail } from "@/api-client";
 import { useAuth } from "@/context/AuthContext";
 import { configureApiClient } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
+
+function apiErrorMessage(err: unknown, fallback: string): string {
+  const e = err as ErrorDetail;
+  if (typeof e?.detail === "string") return e.detail;
+  return fallback;
+}
 
 export default function AdminClubsPage() {
   const { isSuperAdmin, isLoading: authLoading, isAuthenticated } = useAuth();
   const [clubs, setClubs] = useState<OrganizationResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -20,8 +27,7 @@ export default function AdminClubsPage() {
     configureApiClient();
     const { data, error: err } = await adminorgsListClubs();
     if (err) {
-      const e = err as ErrorDetail;
-      setError(typeof e.detail === "string" ? e.detail : "Impossible de charger les clubs");
+      setError(apiErrorMessage(err, "Impossible de charger les clubs"));
       setClubs([]);
     } else {
       setClubs(data ?? []);
@@ -36,6 +42,32 @@ export default function AdminClubsPage() {
       setLoading(false);
     }
   }, [authLoading, isAuthenticated, isSuperAdmin, load]);
+
+  const toggleActive = async (club: OrganizationResponse) => {
+    const next = !club.is_active;
+    const ok = window.confirm(
+      next
+        ? `Activer « ${club.name} » ?`
+        : `Désactiver « ${club.name} » ?`
+    );
+    if (!ok) return;
+
+    setBusyId(club.id);
+    setError(null);
+    configureApiClient();
+    const { data, error: err } = await adminorgsUpdateClub({
+      path: { org_id: club.id },
+      body: { is_active: next },
+    });
+    setBusyId(null);
+    if (err || !data) {
+      setError(apiErrorMessage(err, "Échec du changement de statut"));
+      return;
+    }
+    setClubs((prev) =>
+      prev.map((c) => (c.id === data.id ? { ...c, ...data } : c))
+    );
+  };
 
   if (authLoading || loading) {
     return (
@@ -61,7 +93,8 @@ export default function AdminClubsPage() {
             Clubs
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Gestion des organisations (Super Admin)
+            Gestion des organisations (Super Admin) — liste, détail, édition,
+            activation
           </p>
         </div>
         <Link href="/admin/clubs/new">
@@ -129,7 +162,12 @@ export default function AdminClubsPage() {
                     className="hover:bg-gray-50 dark:hover:bg-white/[0.02]"
                   >
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
-                      {club.name}
+                      <Link
+                        href={`/admin/clubs/${club.id}`}
+                        className="hover:text-brand-600 dark:hover:text-brand-400"
+                      >
+                        {club.name}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                       {club.sport || "—"}
@@ -154,12 +192,26 @@ export default function AdminClubsPage() {
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link
-                        href={`/admin/clubs/${club.id}`}
-                        className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
-                      >
-                        Détail
-                      </Link>
+                      <div className="inline-flex items-center gap-3">
+                        <Link
+                          href={`/admin/clubs/${club.id}`}
+                          className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
+                        >
+                          Détail
+                        </Link>
+                        <button
+                          type="button"
+                          disabled={busyId === club.id}
+                          onClick={() => toggleActive(club)}
+                          className="text-sm font-medium text-gray-600 hover:text-gray-900 disabled:opacity-50 dark:text-gray-400 dark:hover:text-gray-200"
+                        >
+                          {busyId === club.id
+                            ? "…"
+                            : club.is_active
+                              ? "Désactiver"
+                              : "Activer"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
