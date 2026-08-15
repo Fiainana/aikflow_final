@@ -46,7 +46,10 @@ const clubNavItems: NavItem[] = [
   {
     icon: <UserCircleIcon />,
     name: "Membres",
-    path: "/members",
+    subItems: [
+      { name: "Liste", path: "/members" },
+      { name: "Liens parent–athlète", path: "/members/links" },
+    ],
   },
   {
     icon: <CalenderIcon />,
@@ -57,6 +60,11 @@ const clubNavItems: NavItem[] = [
     icon: <UserCircleIcon />,
     name: "Profil",
     path: "/profile",
+  },
+  {
+    icon: <TableIcon />,
+    name: "Confidentialité",
+    path: "/privacy",
   },
 ];
 
@@ -78,7 +86,6 @@ const AppSidebar: React.FC = () => {
   const pathname = usePathname();
   const { isSuperAdmin, isAuthenticated, isLoading: authLoading } = useAuth();
 
-  // Évite le mismatch SSR/client : localStorage n'existe pas côté serveur
   const [ready, setReady] = useState(false);
   useEffect(() => {
     setReady(true);
@@ -117,7 +124,7 @@ const AppSidebar: React.FC = () => {
     navItems.forEach((nav, index) => {
       if (nav.subItems) {
         nav.subItems.forEach((subItem) => {
-          if (isActive(subItem.path)) {
+          if (isActive(subItem.path) || pathname.startsWith(subItem.path + "/")) {
             setOpenSubmenu({ type: "main", index });
             submenuMatched = true;
           }
