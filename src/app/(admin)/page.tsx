@@ -14,6 +14,10 @@ import type {
 } from "@/api-client";
 import { useAuth } from "@/context/AuthContext";
 import { configureApiClient } from "@/lib/api";
+import {
+  athleteProfileHref,
+  profileNameLinkClass,
+} from "@/lib/profile-links";
 
 type Criticality = "high" | "medium" | "low";
 
@@ -174,7 +178,6 @@ export default function CoachBriefPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header brief ≤ 30s */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-brand-600 dark:text-brand-400">
@@ -184,7 +187,7 @@ export default function CoachBriefPage() {
             Bonjour {firstName}
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Signaux de l'équipe — lecture en moins de 30 secondes
+            Signaux de l'équipe — cliquez un nom pour le profil
           </p>
         </div>
         {teams.length > 0 && (
@@ -202,7 +205,6 @@ export default function CoachBriefPage() {
         )}
       </div>
 
-      {/* KPI strip */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
           <p className="text-xs font-medium uppercase text-gray-500">Réponses</p>
@@ -241,7 +243,6 @@ export default function CoachBriefPage() {
         </div>
       )}
 
-      {/* Liste priorisée */}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
         <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-800">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
@@ -275,9 +276,12 @@ export default function CoachBriefPage() {
                   className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${rowClass}`}
                 >
                   <div className="min-w-0">
-                    <p className="font-medium text-gray-900 dark:text-white">
+                    <Link
+                      href={athleteProfileHref(item.user_id)}
+                      className={profileNameLinkClass}
+                    >
                       {item.first_name} {item.last_name}
-                    </p>
+                    </Link>
                     <p className="text-xs text-gray-500">
                       {item.submitted
                         ? `Score ${item.wellness_score?.toFixed(1) ?? "—"}`
@@ -299,7 +303,6 @@ export default function CoachBriefPage() {
         )}
       </div>
 
-      {/* Liens rapides */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Link
           href="/teams"
