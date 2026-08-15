@@ -21,6 +21,7 @@ function isStaffPortalPath(pathname: string): boolean {
     pathname.startsWith("/members") ||
     pathname.startsWith("/wellness") ||
     pathname.startsWith("/profile") ||
+    pathname.startsWith("/privacy") ||
     pathname.startsWith("/calendar") ||
     pathname.startsWith("/blank")
   );
@@ -55,7 +56,6 @@ export function middleware(request: NextRequest) {
   const staffPortal =
     request.cookies.get(PORTAL_COOKIE)?.value === "1" || isSuperAdmin;
 
-  // Non authentifié → login (sauf pages publiques)
   if (!isPublic && !token) {
     const url = request.nextUrl.clone();
     url.pathname = "/signin";
@@ -63,7 +63,6 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Déjà connecté sur /signin ou /signup → home selon rôle
   if (isPublic && token && (pathname === "/signin" || pathname === "/signup")) {
     let dest = "/";
     if (isSuperAdmin) dest = "/admin/clubs";
@@ -73,7 +72,6 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(dest, request.url));
   }
 
-  // Routes Super Admin : uniquement SUPER_ADMIN
   if (pathname.startsWith("/admin")) {
     if (!token) {
       const url = request.nextUrl.clone();
@@ -89,7 +87,6 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Super Admin sur l'espace club → admin clubs
   if (
     token &&
     isSuperAdmin &&
@@ -98,12 +95,12 @@ export function middleware(request: NextRequest) {
       pathname.startsWith("/members") ||
       pathname.startsWith("/wellness") ||
       pathname.startsWith("/profile") ||
+      pathname.startsWith("/privacy") ||
       pathname.startsWith("/calendar"))
   ) {
     return NextResponse.redirect(new URL("/admin/clubs", request.url));
   }
 
-  // ATHLETE / PARENT : pas d'accès au portail staff → message app mobile
   if (token && !isSuperAdmin && !staffPortal && isStaffPortalPath(pathname)) {
     return NextResponse.redirect(accessDeniedUrl(request));
   }
