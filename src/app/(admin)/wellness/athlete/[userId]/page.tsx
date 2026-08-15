@@ -34,9 +34,7 @@ export default function AthleteWellnessDetailPage() {
       sessionrpeAthleteToday({ path: { user_id: userId } }),
     ]);
     if (w.error && r.error) {
-      setError(
-        apiErrorMessage(w.error, "Impossible de charger les données")
-      );
+      setError(apiErrorMessage(w.error, "Impossible de charger les données"));
     } else {
       setError(null);
     }
@@ -58,10 +56,15 @@ export default function AthleteWellnessDetailPage() {
     );
   }
 
+  const checkin = wellness?.checkin;
+
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/wellness/radar" className="text-sm text-gray-500 hover:text-brand-600">
+        <Link
+          href="/wellness/radar"
+          className="text-sm text-gray-500 hover:text-brand-600"
+        >
           ← Radar wellness
         </Link>
         <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
@@ -76,7 +79,10 @@ export default function AthleteWellnessDetailPage() {
       </div>
 
       {error && (
-        <div role="alert" className="rounded-lg border border-error-200 bg-error-50 px-4 py-3 text-sm text-error-700">
+        <div
+          role="alert"
+          className="rounded-lg border border-error-200 bg-error-50 px-4 py-3 text-sm text-error-700"
+        >
           {error}
         </div>
       )}
@@ -95,37 +101,45 @@ export default function AthleteWellnessDetailPage() {
                 <strong className="text-gray-900 dark:text-white">
                   {wellness.submitted ? "Répondu" : "Non répondu"}
                 </strong>
+                {checkin?.drop_alert && (
+                  <span className="ml-2 text-error-600">· Alerte baisse</span>
+                )}
               </p>
-              {wellness.checkin_date && (
-                <p className="text-gray-500">Date : {wellness.checkin_date}</p>
-              )}
-              {wellness.wellness_score != null && (
-                <p>
-                  Score :{" "}
-                  <span className="text-xl font-semibold text-brand-600">
-                    {wellness.wellness_score.toFixed(1)}
-                  </span>
-                </p>
-              )}
-              <div className="grid grid-cols-2 gap-2 pt-2">
-                {[
-                  ["Sommeil", wellness.sleep_quality],
-                  ["Énergie", wellness.energy_level],
-                  ["Courbatures", wellness.muscle_soreness],
-                  ["Stress", wellness.stress_level],
-                  ["Motivation", wellness.motivation],
-                ].map(([label, val]) => (
-                  <div
-                    key={String(label)}
-                    className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-950"
-                  >
-                    <p className="text-xs text-gray-500">{label}</p>
-                    <p className="font-semibold text-gray-900 dark:text-white">
-                      {val != null ? String(val) : "—"}
-                    </p>
+              <p className="text-gray-500">Date : {wellness.checkin_date}</p>
+              {checkin && (
+                <>
+                  <p>
+                    Score :{" "}
+                    <span className="text-xl font-semibold text-brand-600">
+                      {checkin.wellness_score.toFixed(1)}
+                    </span>
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 pt-2">
+                    {(
+                      [
+                        ["Sommeil", checkin.sleep_quality],
+                        ["Énergie", checkin.energy_level],
+                        ["Courbatures", checkin.muscle_soreness],
+                        ["Stress", checkin.stress_level],
+                        ["Motivation", checkin.motivation],
+                      ] as const
+                    ).map(([label, val]) => (
+                      <div
+                        key={label}
+                        className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-950"
+                      >
+                        <p className="text-xs text-gray-500">{label}</p>
+                        <p className="font-semibold text-gray-900 dark:text-white">
+                          {val}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                  {checkin.notes && (
+                    <p className="text-gray-500">Notes : {checkin.notes}</p>
+                  )}
+                </>
+              )}
             </div>
           )}
         </section>
@@ -140,26 +154,24 @@ export default function AthleteWellnessDetailPage() {
             <div className="mt-4 space-y-3 text-sm">
               <p>
                 <span className="text-gray-500">Charge du jour : </span>
-                <strong className="text-xl text-brand-600">
-                  {rpe.daily_load != null ? rpe.daily_load : "—"}
-                </strong>
+                <strong className="text-xl text-brand-600">{rpe.daily_load}</strong>
               </p>
               <p className="text-gray-500">
-                {rpe.logs?.length ?? 0} séance(s) enregistrée(s)
+                {rpe.sessions_count} séance(s) · {rpe.total_duration_minutes} min
               </p>
               <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                {(rpe.logs ?? []).map((log) => (
+                {rpe.logs.map((log) => (
                   <li key={log.id} className="flex justify-between py-2">
                     <span className="text-gray-700 dark:text-gray-300">
-                      {log.session_type ?? "Séance"}
-                      {log.duration_min != null ? ` · ${log.duration_min} min` : ""}
+                      {log.session_date} · {log.duration_minutes} min
+                      {log.notes ? ` · ${log.notes}` : ""}
                     </span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      RPE {log.rpe}
+                      RPE {log.rpe_score} (load {log.session_load})
                     </span>
                   </li>
                 ))}
-                {(rpe.logs ?? []).length === 0 && (
+                {rpe.logs.length === 0 && (
                   <li className="py-4 text-gray-500">Aucune séance aujourd'hui</li>
                 )}
               </ul>
