@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 const TOKEN_COOKIE = "aikflow_access_token";
 const ROLE_COOKIE = "aikflow_is_super_admin";
+/** 1 = accès portail staff (coach/admin/staff), 0 = ATHLETE/PARENT bloqués */
+const PORTAL_COOKIE = "aikflow_staff_portal";
 /** Fallback si le client n'envoie pas expires_in (ex. JWT sans claim exp). */
 const DEFAULT_MAX_AGE = 60 * 60 * 24; // 24h
 
@@ -44,8 +46,11 @@ export async function POST(request: NextRequest) {
     }
 
     const isSuperAdmin = Boolean(body?.is_super_admin);
+    // staff_portal : true par défaut pour Super Admin ; sinon flag client
+    const staffPortal = isSuperAdmin
+      ? true
+      : body?.staff_portal !== false && body?.staff_portal !== 0;
 
-    // maxAge = expires_in client OU claim exp JWT OU fallback 24h
     let maxAge = DEFAULT_MAX_AGE;
     if (typeof body?.expires_in === "number" && body.expires_in > 0) {
       maxAge = Math.floor(body.expires_in);
@@ -61,6 +66,11 @@ export async function POST(request: NextRequest) {
       isSuperAdmin ? "1" : "0",
       cookieOptions(maxAge)
     );
+    res.cookies.set(
+      PORTAL_COOKIE,
+      staffPortal ? "1" : "0",
+      cookieOptions(maxAge)
+    );
     return res;
   } catch {
     return NextResponse.json({ detail: "Invalid body" }, { status: 400 });
@@ -72,5 +82,6 @@ export async function DELETE() {
   const res = NextResponse.json({ ok: true });
   res.cookies.set(TOKEN_COOKIE, "", cookieOptions(0));
   res.cookies.set(ROLE_COOKIE, "", cookieOptions(0));
+  res.cookies.set(PORTAL_COOKIE, "", cookieOptions(0));
   return res;
 }
