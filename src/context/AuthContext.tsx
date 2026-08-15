@@ -15,7 +15,7 @@ import {
   getPostLoginPath,
   getStoredUser,
   getToken,
-  isSuperAdmin,
+  isSuperAdmin as checkSuperAdmin,
   setAuth,
   setOrganizationId,
   getOrganizationId,
@@ -45,11 +45,17 @@ function extractErrorMessage(error: unknown): string {
   return "Une erreur est survenue";
 }
 
-async function setSessionCookie(accessToken: string) {
+async function setSessionCookie(
+  accessToken: string,
+  isSuperAdminFlag: boolean
+) {
   await fetch("/api/auth/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ access_token: accessToken }),
+    body: JSON.stringify({
+      access_token: accessToken,
+      is_super_admin: isSuperAdminFlag,
+    }),
   });
 }
 
@@ -81,6 +87,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setUser(data);
     setOrgId(getOrganizationId());
+    // Resync role cookie (ex. après refresh token / me)
+    await setSessionCookie(token, checkSuperAdmin(data));
     setIsLoading(false);
   }, []);
 
@@ -106,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(message);
     }
     setAuth(data);
-    await setSessionCookie(data.access_token);
+    await setSessionCookie(data.access_token, checkSuperAdmin(data.user));
     configureApiClient();
     setUser(data.user);
     setOrgId(getOrganizationId());
@@ -132,7 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       isLoading,
       isAuthenticated: !!user && !!getToken(),
-      isSuperAdmin: isSuperAdmin(user),
+      isSuperAdmin: checkSuperAdmin(user),
       organizationId,
       login,
       logout,
