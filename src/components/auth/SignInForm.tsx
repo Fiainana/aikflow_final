@@ -6,12 +6,13 @@ import Label from "@/components/form/Label";
 import Button from "@/components/ui/button/Button";
 import { EyeCloseIcon, EyeIcon } from "@/icons";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 
 export default function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, error: authError } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isChecked, setIsChecked] = useState(false);
@@ -19,6 +20,13 @@ export default function SignInForm() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  const sessionMessage = useMemo(() => {
+    if (searchParams.get("reason") === "expired") {
+      return "Votre session a expiré. Veuillez vous reconnecter.";
+    }
+    return null;
+  }, [searchParams]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -58,6 +66,14 @@ export default function SignInForm() {
           <div>
             <form onSubmit={handleSubmit}>
               <div className="space-y-6">
+                {sessionMessage && !displayError && (
+                  <div
+                    role="status"
+                    className="rounded-lg border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-800 dark:border-warning-800 dark:bg-warning-500/10 dark:text-warning-300"
+                  >
+                    {sessionMessage}
+                  </div>
+                )}
                 {displayError && (
                   <div
                     role="alert"
