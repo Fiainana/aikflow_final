@@ -18,7 +18,6 @@ import Label from "@/components/form/Label";
 import Input from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
 
-/** Rôles assignables dans un club (hors SUPER_ADMIN). */
 const CLUB_ROLES: { value: RoleEnum; label: string }[] = [
   { value: "ATHLETE", label: "Athlète" },
   { value: "COACH", label: "Coach" },
@@ -30,12 +29,15 @@ const CLUB_ROLES: { value: RoleEnum; label: string }[] = [
   { value: "MARKETPLACE_PRO", label: "Marketplace" },
 ];
 
+const STAFF_ROLES = new Set(["COACH", "ASSISTANT_COACH", "STAFF", "CLUB_ADMIN"]);
+
 export default function MembersPage() {
   const { isAuthenticated, isLoading: authLoading, isSuperAdmin } = useAuth();
   const [items, setItems] = useState<UserWithRolesResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [search, setSearch] = useState("");
 
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -95,6 +97,13 @@ export default function MembersPage() {
     await load();
   };
 
+  const filtered = items.filter((row) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${row.user.first_name} ${row.user.last_name} ${row.user.email} ${row.roles.join(" ")}`.toLowerCase();
+    return hay.includes(q);
+  });
+
   if (authLoading || loading) {
     return (
       <div className="flex justify-center py-20">
@@ -149,14 +158,24 @@ export default function MembersPage() {
               </span>
             </p>
           )}
-          {created.role === "ATHLETE" && (
-            <Link
-              href={`/members/${created.user.id}/athlete`}
-              className="mt-2 inline-block text-sm font-medium text-brand-600 hover:text-brand-700"
-            >
-              Compléter le profil athlète →
-            </Link>
-          )}
+          <div className="mt-2 flex flex-wrap gap-3">
+            {created.role === "ATHLETE" && (
+              <Link
+                href={`/members/${created.user.id}/athlete`}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+              >
+                Compléter le profil athlète →
+              </Link>
+            )}
+            {STAFF_ROLES.has(created.role) && (
+              <Link
+                href={`/members/${created.user.id}/staff`}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+              >
+                Compléter le profil coach/staff →
+              </Link>
+            )}
+          </div>
         </div>
       )}
 
@@ -239,6 +258,14 @@ export default function MembersPage() {
         </form>
       )}
 
+      <div className="max-w-md">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher un membre…"
+        />
+      </div>
+
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
@@ -254,13 +281,14 @@ export default function MembersPage() {
                   Rôles
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">
-                  Actions
+                  Profils
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-              {items.map((row) => {
+              {filtered.map((row) => {
                 const isAthlete = row.roles.includes("ATHLETE");
+                const isStaff = row.roles.some((r) => STAFF_ROLES.has(r));
                 return (
                   <tr key={row.user.id}>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
@@ -282,25 +310,37 @@ export default function MembersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right text-sm">
-                      {isAthlete && (
-                        <Link
-                          href={`/members/${row.user.id}/athlete`}
-                          className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
-                        >
-                          Profil athlète
-                        </Link>
-                      )}
+                      <div className="inline-flex flex-wrap justify-end gap-3">
+                        {isAthlete && (
+                          <Link
+                            href={`/members/${row.user.id}/athlete`}
+                            className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
+                          >
+                            Athlète
+                          </Link>
+                        )}
+                        {isStaff && (
+                          <Link
+                            href={`/members/${row.user.id}/staff`}
+                            className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
+                          >
+                            Coach / staff
+                          </Link>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
               })}
-              {items.length === 0 && !error && (
+              {filtered.length === 0 && !error && (
                 <tr>
                   <td
                     colSpan={4}
                     className="px-4 py-12 text-center text-sm text-gray-500"
                   >
-                    Aucun membre. Ajoutez le premier athlète ou coach.
+                    {items.length === 0
+                      ? "Aucun membre. Ajoutez le premier athlète ou coach."
+                      : "Aucun résultat pour cette recherche."}
                   </td>
                 </tr>
               )}
