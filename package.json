@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "codegen": "openapi-ts"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.19",
@@ -15,6 +16,7 @@
     "@fullcalendar/list": "^6.1.19",
     "@fullcalendar/react": "^6.1.19",
     "@fullcalendar/timegrid": "^6.1.19",
+    "@hey-api/client-fetch": "^0.13.1",
     "@react-jvectormap/core": "^1.0.4",
     "@react-jvectormap/world": "^1.1.2",
     "@tailwindcss/forms": "^0.5.10",
@@ -34,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
+    "@hey-api/openapi-ts": "^0.99.0",
     "@svgr/webpack": "^8.1.0",
     "@types/node": "^20.19.25",
     "@types/react": "^19.2.1",
