@@ -29,7 +29,7 @@ type AuthState = {
   isSuperAdmin: boolean;
   organizationId: string | null;
   login: (credentials: LoginRequest) => Promise<{ redirectTo: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
   setActiveOrganization: (orgId: string) => void;
   error: string | null;
@@ -43,6 +43,18 @@ function extractErrorMessage(error: unknown): string {
   if (typeof e.detail === "string") return e.detail;
   if (Array.isArray(e.detail)) return "Données invalides";
   return "Une erreur est survenue";
+}
+
+async function setSessionCookie(accessToken: string) {
+  await fetch("/api/auth/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ access_token: accessToken }),
+  });
+}
+
+async function clearSessionCookie() {
+  await fetch("/api/auth/session", { method: "DELETE" });
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -62,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data, error: err } = await authGetMe();
     if (err || !data) {
       clearAuth();
+      await clearSessionCookie();
       setUser(null);
       setIsLoading(false);
       return;
@@ -72,7 +85,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Hydratation côté client uniquement
     const stored = getStoredUser();
     if (stored && getToken()) {
       setUser(stored);
@@ -94,14 +106,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(message);
     }
     setAuth(data);
+    await setSessionCookie(data.access_token);
     configureApiClient();
     setUser(data.user);
     setOrgId(getOrganizationId());
     return { redirectTo: getPostLoginPath(data.user) };
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     clearAuth();
+    await clearSessionCookie();
     setUser(null);
     setOrgId(null);
     setError(null);
