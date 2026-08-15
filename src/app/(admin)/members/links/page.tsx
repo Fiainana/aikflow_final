@@ -23,6 +23,7 @@ const RELATIONS: { value: ParentRelationshipEnum; label: string }[] = [
   { value: "MOTHER", label: "Mère" },
   { value: "FATHER", label: "Père" },
   { value: "GUARDIAN", label: "Tuteur" },
+  { value: "STEP_PARENT", label: "Beau-parent" },
   { value: "OTHER", label: "Autre" },
 ];
 
