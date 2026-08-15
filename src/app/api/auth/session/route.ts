@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const COOKIE_NAME = "aikflow_access_token";
+const TOKEN_COOKIE = "aikflow_access_token";
+const ROLE_COOKIE = "aikflow_is_super_admin";
 const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
-/** POST — set httpOnly cookie after client login */
+function cookieOptions(maxAge: number) {
+  return {
+    httpOnly: true as const,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge,
+  };
+}
+
+/** POST — set httpOnly cookies after client login */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -15,29 +26,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const isSuperAdmin = Boolean(body?.is_super_admin);
+
     const res = NextResponse.json({ ok: true });
-    res.cookies.set(COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: MAX_AGE,
-    });
+    res.cookies.set(TOKEN_COOKIE, token, cookieOptions(MAX_AGE));
+    res.cookies.set(
+      ROLE_COOKIE,
+      isSuperAdmin ? "1" : "0",
+      cookieOptions(MAX_AGE)
+    );
     return res;
   } catch {
     return NextResponse.json({ detail: "Invalid body" }, { status: 400 });
   }
 }
 
-/** DELETE — clear session cookie on logout */
+/** DELETE — clear session cookies on logout */
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
+  res.cookies.set(TOKEN_COOKIE, "", cookieOptions(0));
+  res.cookies.set(ROLE_COOKIE, "", cookieOptions(0));
   return res;
 }
