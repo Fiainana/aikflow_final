@@ -20,6 +20,7 @@ import {
   getTokenExpiresAt,
   isSuperAdmin as checkSuperAdmin,
   isTokenExpired,
+  canAccessStaffPortal,
   setAuth,
   setOrganizationId,
   getOrganizationId,
@@ -36,6 +37,7 @@ type AuthState = {
   isLoading: boolean;
   isAuthenticated: boolean;
   isSuperAdmin: boolean;
+  canAccessPortal: boolean;
   organizationId: string | null;
   login: (credentials: LoginRequest) => Promise<{ redirectTo: string }>;
   logout: () => Promise<void>;
@@ -56,7 +58,8 @@ function extractErrorMessage(error: unknown): string {
 
 async function setSessionCookie(
   accessToken: string,
-  isSuperAdminFlag: boolean
+  isSuperAdminFlag: boolean,
+  staffPortal: boolean
 ) {
   const expiresIn = getTokenTtlSeconds(accessToken);
   await fetch("/api/auth/session", {
@@ -65,6 +68,7 @@ async function setSessionCookie(
     body: JSON.stringify({
       access_token: accessToken,
       is_super_admin: isSuperAdminFlag,
+      staff_portal: staffPortal,
       ...(expiresIn != null ? { expires_in: expiresIn } : {}),
     }),
   });
@@ -111,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await logout();
     if (typeof window !== "undefined") {
       const path = window.location.pathname;
-      if (path !== "/signin" && path !== "/signup") {
+      if (path !== "/signin" && path !== "/signup" && path !== "/access-denied") {
         router.replace(`/signin?from=${encodeURIComponent(path)}&reason=expired`);
         router.refresh();
       }
@@ -123,7 +127,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearExpiryTimer();
       const expiresAt = getTokenExpiresAt(token);
       if (expiresAt == null) return;
-      // Déclencher un peu avant l'exp réelle (marge 5s)
       const delay = Math.max(0, expiresAt - Date.now() - 5_000);
       expiryTimerRef.current = setTimeout(() => {
         void forceLogout();
@@ -132,7 +135,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [clearExpiryTimer, forceLogout]
   );
 
-  // Intercepteur API 401 / JWT expiré
   useEffect(() => {
     setSessionExpiredHandler(() => forceLogout());
     return () => setSessionExpiredHandler(null);
@@ -159,7 +161,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setUser(data);
     setOrgId(getOrganizationId());
-    await setSessionCookie(token, checkSuperAdmin(data));
+    await setSessionCookie(
+      token,
+      checkSuperAdmin(data),
+      canAccessStaffPortal(data)
+    );
     scheduleExpiryLogout(token);
     setIsLoading(false);
   }, [clearExpiryTimer, scheduleExpiryLogout]);
@@ -167,7 +173,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const token = getToken();
     if (token && isTokenExpired(token)) {
-      // Session déjà morte au chargement
       clearAuth();
       void clearSessionCookie();
       setUser(null);
@@ -197,12 +202,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setError(message);
         throw new Error(message);
       }
+
+      const staffPortal = canAccessStaffPortal(data.user);
       setAuth(data);
-      await setSessionCookie(data.access_token, checkSuperAdmin(data.user));
+      await setSessionCookie(
+        data.access_token,
+        checkSuperAdmin(data.user),
+        staffPortal
+      );
       configureApiClient();
       setUser(data.user);
       setOrgId(getOrganizationId());
       scheduleExpiryLogout(data.access_token);
+
       return { redirectTo: getPostLoginPath(data.user) };
     },
     [scheduleExpiryLogout]
@@ -220,6 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       isAuthenticated: !!user && !!getToken() && !isTokenExpired(),
       isSuperAdmin: checkSuperAdmin(user),
+      canAccessPortal: canAccessStaffPortal(user),
       organizationId,
       login,
       logout,
