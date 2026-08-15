@@ -2,7 +2,8 @@
  * Auth helpers — stockage token + détection Super Admin vs Club SaaS
  *
  * Phase 0 : auth + séparation des deux espaces de comptes.
- * Token en localStorage pour le dev ; passer à cookie httpOnly en prod.
+ * Token en localStorage (client) + cookie httpOnly (middleware).
+ * Expiration JWT lue depuis le claim `exp`.
  */
 
 import type { LoginResponse, UserBaseResponse, RoleEnum } from "@/api-client";
@@ -10,6 +11,66 @@ import type { LoginResponse, UserBaseResponse, RoleEnum } from "@/api-client";
 const TOKEN_KEY = "aikflow_access_token";
 const USER_KEY = "aikflow_user";
 const ORG_KEY = "aikflow_organization_id";
+
+/** Payload JWT minimal (sans vérification crypto — le backend valide). */
+type JwtPayload = {
+  exp?: number;
+  iat?: number;
+  sub?: string;
+  [key: string]: unknown;
+};
+
+/**
+ * Décode le payload d'un JWT (base64url) sans vérifier la signature.
+ * Retourne null si le format est invalide.
+ */
+export function parseJwtPayload(token: string): JwtPayload | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json =
+      typeof atob === "function"
+        ? atob(padded)
+        : Buffer.from(padded, "base64").toString("utf8");
+    return JSON.parse(json) as JwtPayload;
+  } catch {
+    return null;
+  }
+}
+
+/** Timestamp d'expiration (ms) ou null si absent / invalide. */
+export function getTokenExpiresAt(token?: string | null): number | null {
+  const t = token ?? (typeof window !== "undefined" ? getToken() : null);
+  if (!t) return null;
+  const payload = parseJwtPayload(t);
+  if (!payload?.exp || typeof payload.exp !== "number") return null;
+  return payload.exp * 1000;
+}
+
+/**
+ * True si le token est absent, mal formé, ou expiré.
+ * `skewMs` : marge avant expiration (défaut 15s).
+ */
+export function isTokenExpired(
+  token?: string | null,
+  skewMs = 15_000
+): boolean {
+  const t = token ?? (typeof window !== "undefined" ? getToken() : null);
+  if (!t) return true;
+  const expiresAt = getTokenExpiresAt(t);
+  // Pas de claim exp → on ne force pas l'expiration côté client
+  if (expiresAt == null) return false;
+  return Date.now() >= expiresAt - skewMs;
+}
+
+/** Secondes restantes avant expiration (0 si déjà expiré). */
+export function getTokenTtlSeconds(token?: string | null): number | null {
+  const expiresAt = getTokenExpiresAt(token);
+  if (expiresAt == null) return null;
+  return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
