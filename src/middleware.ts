@@ -26,6 +26,12 @@ function isStaffPortalPath(pathname: string): boolean {
   );
 }
 
+function accessDeniedUrl(request: NextRequest) {
+  const url = new URL("/access-denied", request.url);
+  url.searchParams.set("reason", "mobile");
+  return url;
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -61,7 +67,9 @@ export function middleware(request: NextRequest) {
   if (isPublic && token && (pathname === "/signin" || pathname === "/signup")) {
     let dest = "/";
     if (isSuperAdmin) dest = "/admin/clubs";
-    else if (!staffPortal) dest = "/access-denied";
+    else if (!staffPortal) {
+      return NextResponse.redirect(accessDeniedUrl(request));
+    }
     return NextResponse.redirect(new URL(dest, request.url));
   }
 
@@ -74,14 +82,14 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     if (!isSuperAdmin) {
-      // ATHLETE/PARENT → accès refusé ; staff club → dashboard
-      const dest = staffPortal ? "/" : "/access-denied";
-      return NextResponse.redirect(new URL(dest, request.url));
+      if (!staffPortal) {
+        return NextResponse.redirect(accessDeniedUrl(request));
+      }
+      return NextResponse.redirect(new URL("/", request.url));
     }
   }
 
   // Super Admin sur l'espace club → admin clubs
-  // Exception profils individuels éventuels déjà gérés ailleurs si besoin
   if (
     token &&
     isSuperAdmin &&
@@ -95,9 +103,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/admin/clubs", request.url));
   }
 
-  // ATHLETE / PARENT : pas d'accès au portail staff
+  // ATHLETE / PARENT : pas d'accès au portail staff → message app mobile
   if (token && !isSuperAdmin && !staffPortal && isStaffPortalPath(pathname)) {
-    return NextResponse.redirect(new URL("/access-denied", request.url));
+    return NextResponse.redirect(accessDeniedUrl(request));
   }
 
   return NextResponse.next();
