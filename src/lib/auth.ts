@@ -4,6 +4,9 @@
  * Phase 0 : auth + séparation des deux espaces de comptes.
  * Token en localStorage (client) + cookie httpOnly (middleware).
  * Expiration JWT lue depuis le claim `exp`.
+ *
+ * Portail staff (ce frontend) : CLUB_ADMIN / COACH / ASSISTANT_COACH / STAFF
+ * (+ SUPER_ADMIN). ATHLETE et PARENT n'ont pas accès (app mobile dédiée).
  */
 
 import type { LoginResponse, UserBaseResponse, RoleEnum } from "@/api-client";
@@ -11,6 +14,18 @@ import type { LoginResponse, UserBaseResponse, RoleEnum } from "@/api-client";
 const TOKEN_KEY = "aikflow_access_token";
 const USER_KEY = "aikflow_user";
 const ORG_KEY = "aikflow_organization_id";
+
+/** Rôles autorisés sur le portail web staff / admin club. */
+export const STAFF_PORTAL_ROLES = new Set<string>([
+  "SUPER_ADMIN",
+  "CLUB_ADMIN",
+  "COACH",
+  "ASSISTANT_COACH",
+  "STAFF",
+]);
+
+/** Rôles explicitement exclus du portail web (Phase 0). */
+export const BLOCKED_PORTAL_ROLES = new Set<string>(["ATHLETE", "PARENT"]);
 
 /** Payload JWT minimal (sans vérification crypto — le backend valide). */
 type JwtPayload = {
@@ -127,19 +142,43 @@ export function isSuperAdmin(user?: UserBaseResponse | null): boolean {
   return u.memberships.some((m) => m.role === "SUPER_ADMIN");
 }
 
-/** Rôles présents dans les memberships (hors org). */
+/** Rôles présents dans les memberships. */
 export function getRoles(user?: UserBaseResponse | null): string[] {
   const u = user ?? getStoredUser();
   if (!u?.memberships?.length) return [];
   return [...new Set(u.memberships.map((m) => m.role))];
 }
 
-/** Redirection post-login selon le type de compte. */
+/**
+ * Accès au portail web staff / admin club.
+ * - SUPER_ADMIN, CLUB_ADMIN, COACH, ASSISTANT_COACH, STAFF → oui
+ * - ATHLETE / PARENT seuls → non (même si multi-rôles, un rôle staff suffit)
+ */
+export function canAccessStaffPortal(user?: UserBaseResponse | null): boolean {
+  const roles = getRoles(user);
+  if (!roles.length) return false;
+  return roles.some((r) => STAFF_PORTAL_ROLES.has(r));
+}
+
+/** True si l'utilisateur n'a que des rôles bloqués (ATHLETE / PARENT). */
+export function isBlockedPortalUser(user?: UserBaseResponse | null): boolean {
+  const roles = getRoles(user);
+  if (!roles.length) return false;
+  return !roles.some((r) => STAFF_PORTAL_ROLES.has(r));
+}
+
+/**
+ * Redirection post-login selon le type de compte.
+ * ATHLETE / PARENT → page accès refusé (pas le dashboard staff).
+ */
 export function getPostLoginPath(user: UserBaseResponse): string {
   if (isSuperAdmin(user)) {
-    return "/admin/clubs"; // espace Super Admin
+    return "/admin/clubs";
   }
-  return "/"; // dashboard club (coach / admin club / staff)
+  if (!canAccessStaffPortal(user)) {
+    return "/access-denied";
+  }
+  return "/";
 }
 
 export type ClubRole = Extract<
