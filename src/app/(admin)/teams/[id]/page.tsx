@@ -18,6 +18,7 @@ import type {
   TeamGenderEnum,
   TeamMemberRoleEnum,
   UserWithRolesResponse,
+  RoleEnum,
 } from "@/api-client";
 import { useAuth } from "@/context/AuthContext";
 import { configureApiClient } from "@/lib/api";
@@ -25,6 +26,7 @@ import { apiErrorMessage, emptyToNull, emptyToNumber } from "@/lib/errors";
 import Label from "@/components/form/Label";
 import Input from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
+import { Modal } from "@/components/ui/modal";
 
 const AGE_CATEGORIES: AgeCategoryEnum[] = [
   "U7", "U9", "U11", "U13", "U15", "U17", "U19", "U21", "SENIOR", "OTHER",
@@ -36,21 +38,33 @@ const GENDERS: { value: TeamGenderEnum; label: string }[] = [
   { value: "MIXED", label: "Mixte" },
 ];
 
-const TEAM_ROLES: { value: TeamMemberRoleEnum; label: string }[] = [
-  { value: "ATHLETE", label: "Athlète" },
-  { value: "COACH", label: "Coach" },
-  { value: "ASSISTANT_COACH", label: "Adjoint" },
-  { value: "STAFF", label: "Staff" },
-];
-
 const STAFF_TEAM_ROLES = new Set<TeamMemberRoleEnum>([
   "COACH",
   "ASSISTANT_COACH",
   "STAFF",
 ]);
 
+const ROLE_LABEL: Record<TeamMemberRoleEnum, string> = {
+  ATHLETE: "Athlète",
+  COACH: "Coach",
+  ASSISTANT_COACH: "Adjoint",
+  STAFF: "Staff",
+};
+
 const selectClass =
   "h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-800 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90";
+
+/** Rôle dans l'équipe = rôle club du membre (priorité staff > athlète). */
+function teamRoleFromClubRoles(
+  roles: Array<RoleEnum | string>
+): TeamMemberRoleEnum | null {
+  const set = new Set(roles.map(String));
+  if (set.has("COACH")) return "COACH";
+  if (set.has("ASSISTANT_COACH")) return "ASSISTANT_COACH";
+  if (set.has("STAFF") || set.has("CLUB_ADMIN")) return "STAFF";
+  if (set.has("ATHLETE")) return "ATHLETE";
+  return null;
+}
 
 function memberLabel(m: TeamMemberResponse): string {
   if (m.user) {
@@ -70,7 +84,9 @@ export default function TeamDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const [name, setName] = useState("");
   const [ageCategory, setAgeCategory] = useState<AgeCategoryEnum>("U15");
@@ -81,13 +97,10 @@ export default function TeamDetailPage() {
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Ajout
   const [candidateSearch, setCandidateSearch] = useState("");
-  const [addRole, setAddRole] = useState<TeamMemberRoleEnum>("ATHLETE");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
 
-  // Filtres effectif
   const [rosterFilter, setRosterFilter] = useState<"ALL" | "ATHLETE" | "STAFF">("ALL");
   const [rosterSearch, setRosterSearch] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -102,9 +115,11 @@ export default function TeamDetailPage() {
     const q = candidateSearch.trim().toLowerCase();
     return clubUsers
       .filter((u) => !rosterUserIds.has(u.user.id))
+      .filter((u) => teamRoleFromClubRoles(u.roles) != null)
       .filter((u) => {
         if (!q) return true;
-        const hay = `${u.user.first_name} ${u.user.last_name} ${u.user.email} ${u.roles.join(" ")}`.toLowerCase();
+        const hay =
+          `${u.user.first_name} ${u.user.last_name} ${u.user.email} ${u.roles.join(" ")}`.toLowerCase();
         return hay.includes(q);
       })
       .sort((a, b) =>
@@ -127,11 +142,12 @@ export default function TeamDetailPage() {
       })
       .filter((m) => {
         if (!q) return true;
-        return memberLabel(m).toLowerCase().includes(q) ||
-          (m.user?.email ?? "").toLowerCase().includes(q);
+        return (
+          memberLabel(m).toLowerCase().includes(q) ||
+          (m.user?.email ?? "").toLowerCase().includes(q)
+        );
       })
       .sort((a, b) => {
-        // Capitaines d'abord, puis maillot, puis nom
         if (a.is_captain !== b.is_captain) return a.is_captain ? -1 : 1;
         const ja = a.jersey_number ?? 999;
         const jb = b.jersey_number ?? 999;
@@ -181,6 +197,19 @@ export default function TeamDetailPage() {
     else if (!authLoading) setLoading(false);
   }, [authLoading, isAuthenticated, teamId, load]);
 
+  const openAddModal = () => {
+    setSelectedIds(new Set());
+    setCandidateSearch("");
+    setAddOpen(true);
+  };
+
+  const closeAddModal = () => {
+    if (adding) return;
+    setAddOpen(false);
+    setSelectedIds(new Set());
+    setCandidateSearch("");
+  };
+
   const handleSaveTeam = async (e: FormEvent) => {
     e.preventDefault();
     if (!team) return;
@@ -206,6 +235,7 @@ export default function TeamDetailPage() {
       return;
     }
     setSuccess("Paramètres de l'équipe enregistrés.");
+    setSettingsOpen(false);
     await load();
   };
 
@@ -231,14 +261,23 @@ export default function TeamDetailPage() {
     setSuccess(null);
     configureApiClient();
 
+    const byId = new Map(clubUsers.map((u) => [u.user.id, u]));
     let ok = 0;
     let fail = 0;
+    let skipped = 0;
+
     for (const userId of selectedIds) {
+      const user = byId.get(userId);
+      const roleInTeam = user ? teamRoleFromClubRoles(user.roles) : null;
+      if (!roleInTeam) {
+        skipped += 1;
+        continue;
+      }
       const { error: err } = await teamsAddMemberEndpoint({
         path: { team_id: team.id },
         body: {
           user_id: userId,
-          role_in_team: addRole,
+          role_in_team: roleInTeam,
           is_captain: false,
         },
       });
@@ -248,23 +287,22 @@ export default function TeamDetailPage() {
 
     setAdding(false);
     setSelectedIds(new Set());
+
     if (fail && !ok) {
       setError(`Aucun membre ajouté (${fail} erreur(s)).`);
-    } else if (fail) {
-      setSuccess(`${ok} ajouté(s), ${fail} échec(s).`);
     } else {
-      setSuccess(`${ok} membre(s) ajouté(s) à l'effectif.`);
+      const parts = [`${ok} ajouté(s)`];
+      if (fail) parts.push(`${fail} échec(s)`);
+      if (skipped) parts.push(`${skipped} ignoré(s)`);
+      setSuccess(parts.join(" · "));
+      setAddOpen(false);
     }
     await load();
   };
 
   const handleUpdateMember = async (
     memberId: string,
-    patch: {
-      role_in_team?: TeamMemberRoleEnum;
-      jersey_number?: number | null;
-      is_captain?: boolean;
-    }
+    patch: { jersey_number?: number | null; is_captain?: boolean }
   ) => {
     if (!team) return;
     setUpdatingId(memberId);
@@ -280,7 +318,6 @@ export default function TeamDetailPage() {
       await load();
       return;
     }
-    // Optimistic local update
     setTeam((prev) => {
       if (!prev?.members) return prev;
       return {
@@ -289,7 +326,6 @@ export default function TeamDetailPage() {
           m.id === memberId
             ? {
                 ...m,
-                role_in_team: patch.role_in_team ?? m.role_in_team,
                 jersey_number:
                   patch.jersey_number !== undefined
                     ? patch.jersey_number
@@ -344,7 +380,6 @@ export default function TeamDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link href="/teams" className="text-sm text-gray-500 hover:text-brand-600">
@@ -361,14 +396,14 @@ export default function TeamDetailPage() {
               : ` · ${counts.all} membre(s)`}
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          type="button"
-          onClick={() => setSettingsOpen((v) => !v)}
-        >
-          {settingsOpen ? "Masquer paramètres" : "Paramètres équipe"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" type="button" onClick={() => setSettingsOpen(true)}>
+            Paramètres
+          </Button>
+          <Button size="sm" type="button" onClick={openAddModal}>
+            Ajouter des membres
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -382,15 +417,185 @@ export default function TeamDetailPage() {
         </div>
       )}
 
-      {/* Settings collapsible */}
-      {settingsOpen && (
-        <form
-          onSubmit={handleSaveTeam}
-          className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900"
-        >
-          <h2 className="text-lg font-medium text-gray-900 dark:text-white">
-            Paramètres
+      {/* Effectif plein largeur */}
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            Effectif
           </h2>
+          <div className="flex flex-wrap gap-1">
+            {(
+              [
+                { key: "ALL" as const, label: `Tous (${counts.all})` },
+                { key: "ATHLETE" as const, label: `Athlètes (${counts.athletes})` },
+                { key: "STAFF" as const, label: `Staff (${counts.staff})` },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setRosterFilter(tab.key)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  rosterFilter === tab.key
+                    ? "bg-brand-500 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+          <Input
+            value={rosterSearch}
+            onChange={(e) => setRosterSearch(e.target.value)}
+            placeholder="Filtrer l'effectif…"
+          />
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+            <thead className="bg-gray-50 dark:bg-gray-950">
+              <tr>
+                <th className="px-3 py-2.5 text-left text-xs font-medium uppercase text-gray-500">
+                  Membre
+                </th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium uppercase text-gray-500">
+                  Rôle
+                </th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium uppercase text-gray-500">
+                  N°
+                </th>
+                <th className="px-3 py-2.5 text-center text-xs font-medium uppercase text-gray-500">
+                  Cap.
+                </th>
+                <th className="px-3 py-2.5 text-right text-xs font-medium uppercase text-gray-500" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {filteredMembers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-500">
+                    {members.length === 0 ? (
+                      <>
+                        Effectif vide.{" "}
+                        <button
+                          type="button"
+                          onClick={openAddModal}
+                          className="font-medium text-brand-600 hover:underline"
+                        >
+                          Ajouter des membres
+                        </button>
+                      </>
+                    ) : (
+                      "Aucun résultat pour ce filtre."
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                filteredMembers.map((m) => {
+                  const label = memberLabel(m);
+                  const busy = updatingId === m.id || removingId === m.id;
+                  return (
+                    <tr key={m.id} className={busy ? "opacity-60" : ""}>
+                      <td className="px-3 py-2.5">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {label}
+                        </div>
+                        {m.user?.email && (
+                          <div className="text-xs text-gray-500">{m.user.email}</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                          {ROLE_LABEL[m.role_in_team] ?? m.role_in_team}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <input
+                          type="number"
+                          className="h-9 w-16 rounded-md border border-gray-200 bg-transparent px-2 text-center text-sm dark:border-gray-700"
+                          defaultValue={m.jersey_number ?? ""}
+                          key={`${m.id}-${m.jersey_number}`}
+                          disabled={busy}
+                          onBlur={(e) => {
+                            const n = e.target.value.trim();
+                            const next = n === "" ? null : Number(n);
+                            const prev = m.jersey_number ?? null;
+                            if (next === prev) return;
+                            if (n !== "" && !Number.isFinite(next)) return;
+                            handleUpdateMember(m.id, { jersey_number: next });
+                          }}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={m.is_captain}
+                          disabled={busy}
+                          onChange={(e) =>
+                            handleUpdateMember(m.id, {
+                              is_captain: e.target.checked,
+                            })
+                          }
+                          className="h-4 w-4 rounded border-gray-300 text-brand-500"
+                          title="Capitaine"
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          {m.role_in_team === "ATHLETE" && (
+                            <Link
+                              href={`/members/${m.user_id}/athlete`}
+                              className="text-xs font-medium text-brand-600 hover:underline"
+                            >
+                              Athlète
+                            </Link>
+                          )}
+                          {STAFF_TEAM_ROLES.has(m.role_in_team) && (
+                            <Link
+                              href={`/members/${m.user_id}/staff`}
+                              className="text-xs font-medium text-brand-600 hover:underline"
+                            >
+                              Coach
+                            </Link>
+                          )}
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleRemove(m.id, label)}
+                            className="text-xs font-medium text-error-600 hover:underline disabled:opacity-50"
+                          >
+                            Retirer
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal paramètres */}
+      <Modal
+        isOpen={settingsOpen}
+        onClose={() => !saving && setSettingsOpen(false)}
+        className="mx-4 max-w-lg p-6 sm:p-8"
+      >
+        <form onSubmit={handleSaveTeam} className="space-y-4 pr-8">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Paramètres de l'équipe
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Nom, catégorie, saison et statut
+            </p>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Label>Nom</Label>
@@ -398,7 +603,12 @@ export default function TeamDetailPage() {
             </div>
             <div>
               <Label>Catégorie</Label>
-              <select className={selectClass} value={ageCategory} onChange={(e) => setAgeCategory(e.target.value as AgeCategoryEnum)} disabled={saving}>
+              <select
+                className={selectClass}
+                value={ageCategory}
+                onChange={(e) => setAgeCategory(e.target.value as AgeCategoryEnum)}
+                disabled={saving}
+              >
                 {AGE_CATEGORIES.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
@@ -406,7 +616,12 @@ export default function TeamDetailPage() {
             </div>
             <div>
               <Label>Genre</Label>
-              <select className={selectClass} value={gender} onChange={(e) => setGender(e.target.value as TeamGenderEnum)} disabled={saving}>
+              <select
+                className={selectClass}
+                value={gender}
+                onChange={(e) => setGender(e.target.value as TeamGenderEnum)}
+                disabled={saving}
+              >
                 {GENDERS.map((g) => (
                   <option key={g.value} value={g.value}>{g.label}</option>
                 ))}
@@ -424,7 +639,7 @@ export default function TeamDetailPage() {
               <Label>Description</Label>
               <Input value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 sm:col-span-2">
               <input
                 type="checkbox"
                 checked={isActive}
@@ -435,36 +650,38 @@ export default function TeamDetailPage() {
               Équipe active
             </label>
           </div>
-          <Button type="submit" size="sm" disabled={saving}>
-            {saving ? "…" : "Enregistrer"}
-          </Button>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={saving}
+              onClick={() => setSettingsOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button type="submit" size="sm" disabled={saving}>
+              {saving ? "…" : "Enregistrer"}
+            </Button>
+          </div>
         </form>
-      )}
+      </Modal>
 
-      <div className="grid gap-6 lg:grid-cols-5">
-        {/* Colonne : ajouter */}
-        <div className="lg:col-span-2 space-y-4 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+      {/* Modal ajout membres — sans champ rôle */}
+      <Modal
+        isOpen={addOpen}
+        onClose={closeAddModal}
+        className="mx-4 max-w-lg p-6 sm:p-8"
+      >
+        <div className="space-y-4 pr-8">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
               Ajouter à l'effectif
             </h2>
-            <p className="mt-0.5 text-xs text-gray-500">
-              Cochez un ou plusieurs membres du club, puis validez.
+            <p className="mt-1 text-sm text-gray-500">
+              Le rôle dans l'équipe suit automatiquement le rôle club du membre
+              (athlète, coach, staff…).
             </p>
-          </div>
-
-          <div>
-            <Label>Rôle à l'ajout</Label>
-            <select
-              className={selectClass}
-              value={addRole}
-              onChange={(e) => setAddRole(e.target.value as TeamMemberRoleEnum)}
-              disabled={adding}
-            >
-              {TEAM_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
           </div>
 
           <div>
@@ -472,7 +689,7 @@ export default function TeamDetailPage() {
             <Input
               value={candidateSearch}
               onChange={(e) => setCandidateSearch(e.target.value)}
-              placeholder="Nom, email, rôle…"
+              placeholder="Nom, email…"
               disabled={adding}
             />
           </div>
@@ -480,10 +697,20 @@ export default function TeamDetailPage() {
           <div className="flex items-center justify-between text-xs text-gray-500">
             <span>{candidates.length} disponible(s)</span>
             <div className="flex gap-2">
-              <button type="button" onClick={selectAllVisible} className="font-medium text-brand-600 hover:underline" disabled={adding}>
+              <button
+                type="button"
+                onClick={selectAllVisible}
+                className="font-medium text-brand-600 hover:underline"
+                disabled={adding}
+              >
                 Tout cocher
               </button>
-              <button type="button" onClick={clearSelection} className="font-medium text-gray-500 hover:underline" disabled={adding}>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="font-medium text-gray-500 hover:underline"
+                disabled={adding}
+              >
                 Vider
               </button>
             </div>
@@ -494,11 +721,12 @@ export default function TeamDetailPage() {
               <li className="px-3 py-8 text-center text-sm text-gray-500">
                 {clubUsers.length === 0
                   ? "Aucun membre club. Créez-en dans Membres."
-                  : "Tous les membres sont déjà dans l'équipe (ou aucun résultat)."}
+                  : "Plus personne à ajouter (ou aucun résultat)."}
               </li>
             ) : (
               candidates.map((u) => {
                 const checked = selectedIds.has(u.user.id);
+                const derived = teamRoleFromClubRoles(u.roles);
                 return (
                   <li key={u.user.id}>
                     <label
@@ -514,21 +742,18 @@ export default function TeamDetailPage() {
                         className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block font-medium text-gray-900 dark:text-white">
-                          {u.user.first_name} {u.user.last_name}
-                        </span>
-                        <span className="block truncate text-xs text-gray-500">
-                          {u.user.email}
-                        </span>
-                        <span className="mt-1 flex flex-wrap gap-1">
-                          {u.roles.slice(0, 3).map((r) => (
-                            <span
-                              key={r}
-                              className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                            >
-                              {r.replace(/_/g, " ")}
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {u.user.first_name} {u.user.last_name}
+                          </span>
+                          {derived && (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                              {ROLE_LABEL[derived]}
                             </span>
-                          ))}
+                          )}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-gray-500">
+                          {u.user.email}
                         </span>
                       </span>
                     </label>
@@ -538,187 +763,31 @@ export default function TeamDetailPage() {
             )}
           </ul>
 
-          <Button
-            type="button"
-            size="sm"
-            className="w-full"
-            disabled={adding || selectedIds.size === 0}
-            onClick={handleBulkAdd}
-          >
-            {adding
-              ? "Ajout…"
-              : `Ajouter ${selectedIds.size || ""} à l'équipe`.trim()}
-          </Button>
-        </div>
-
-        {/* Colonne : effectif */}
-        <div className="lg:col-span-3 rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-          <div className="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              Effectif
-            </h2>
-            <div className="flex flex-wrap gap-1">
-              {(
-                [
-                  { key: "ALL" as const, label: `Tous (${counts.all})` },
-                  { key: "ATHLETE" as const, label: `Athlètes (${counts.athletes})` },
-                  { key: "STAFF" as const, label: `Staff (${counts.staff})` },
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setRosterFilter(tab.key)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                    rosterFilter === tab.key
-                      ? "bg-brand-500 text-white"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-            <Input
-              value={rosterSearch}
-              onChange={(e) => setRosterSearch(e.target.value)}
-              placeholder="Filtrer l'effectif…"
-            />
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
-              <thead className="bg-gray-50 dark:bg-gray-950">
-                <tr>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase text-gray-500">
-                    Membre
-                  </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase text-gray-500">
-                    Rôle
-                  </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase text-gray-500">
-                    N°
-                  </th>
-                  <th className="px-3 py-2.5 text-center text-xs font-medium uppercase text-gray-500">
-                    Cap.
-                  </th>
-                  <th className="px-3 py-2.5 text-right text-xs font-medium uppercase text-gray-500">
-                    
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {filteredMembers.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-500">
-                      {members.length === 0
-                        ? "Effectif vide — sélectionnez des membres à gauche."
-                        : "Aucun résultat pour ce filtre."}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMembers.map((m) => {
-                    const label = memberLabel(m);
-                    const busy = updatingId === m.id || removingId === m.id;
-                    return (
-                      <tr key={m.id} className={busy ? "opacity-60" : ""}>
-                        <td className="px-3 py-2.5">
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {label}
-                          </div>
-                          {m.user?.email && (
-                            <div className="text-xs text-gray-500">{m.user.email}</div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <select
-                            className="h-9 max-w-[140px] rounded-md border border-gray-200 bg-transparent px-2 text-xs dark:border-gray-700"
-                            value={m.role_in_team}
-                            disabled={busy}
-                            onChange={(e) =>
-                              handleUpdateMember(m.id, {
-                                role_in_team: e.target.value as TeamMemberRoleEnum,
-                              })
-                            }
-                          >
-                            {TEAM_ROLES.map((r) => (
-                              <option key={r.value} value={r.value}>
-                                {r.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <input
-                            type="number"
-                            className="h-9 w-16 rounded-md border border-gray-200 bg-transparent px-2 text-center text-sm dark:border-gray-700"
-                            defaultValue={m.jersey_number ?? ""}
-                            key={`${m.id}-${m.jersey_number}`}
-                            disabled={busy}
-                            onBlur={(e) => {
-                              const n = e.target.value.trim();
-                              const next = n === "" ? null : Number(n);
-                              const prev = m.jersey_number ?? null;
-                              if (next === prev) return;
-                              if (n !== "" && !Number.isFinite(next)) return;
-                              handleUpdateMember(m.id, { jersey_number: next });
-                            }}
-                          />
-                        </td>
-                        <td className="px-3 py-2.5 text-center">
-                          <input
-                            type="checkbox"
-                            checked={m.is_captain}
-                            disabled={busy}
-                            onChange={(e) =>
-                              handleUpdateMember(m.id, {
-                                is_captain: e.target.checked,
-                              })
-                            }
-                            className="h-4 w-4 rounded border-gray-300 text-brand-500"
-                            title="Capitaine"
-                          />
-                        </td>
-                        <td className="px-3 py-2.5 text-right">
-                          <div className="inline-flex items-center gap-2">
-                            {m.role_in_team === "ATHLETE" && (
-                              <Link
-                                href={`/members/${m.user_id}/athlete`}
-                                className="text-xs font-medium text-brand-600 hover:underline"
-                              >
-                                Athlète
-                              </Link>
-                            )}
-                            {STAFF_TEAM_ROLES.has(m.role_in_team) && (
-                              <Link
-                                href={`/members/${m.user_id}/staff`}
-                                className="text-xs font-medium text-brand-600 hover:underline"
-                              >
-                                Coach
-                              </Link>
-                            )}
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => handleRemove(m.id, label)}
-                              className="text-xs font-medium text-error-600 hover:underline disabled:opacity-50"
-                            >
-                              Retirer
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={adding}
+              onClick={closeAddModal}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={adding || selectedIds.size === 0}
+              onClick={handleBulkAdd}
+            >
+              {adding
+                ? "Ajout…"
+                : selectedIds.size
+                  ? `Ajouter (${selectedIds.size})`
+                  : "Ajouter"}
+            </Button>
           </div>
         </div>
-      </div>
+      </Modal>
     </div>
   );
 }
