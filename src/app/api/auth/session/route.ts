@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 const TOKEN_COOKIE = "aikflow_access_token";
 const ROLE_COOKIE = "aikflow_is_super_admin";
-const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+/** Fallback si le client n'envoie pas expires_in (ex. JWT sans claim exp). */
+const DEFAULT_MAX_AGE = 60 * 60 * 24; // 24h
 
 function cookieOptions(maxAge: number) {
   return {
@@ -12,6 +13,22 @@ function cookieOptions(maxAge: number) {
     path: "/",
     maxAge,
   };
+}
+
+function parseJwtExpSeconds(token: string): number | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = Buffer.from(padded, "base64").toString("utf8");
+    const payload = JSON.parse(json) as { exp?: number };
+    if (typeof payload.exp !== "number") return null;
+    const ttl = payload.exp - Math.floor(Date.now() / 1000);
+    return ttl > 0 ? ttl : 0;
+  } catch {
+    return null;
+  }
 }
 
 /** POST — set httpOnly cookies after client login */
@@ -28,12 +45,21 @@ export async function POST(request: NextRequest) {
 
     const isSuperAdmin = Boolean(body?.is_super_admin);
 
-    const res = NextResponse.json({ ok: true });
-    res.cookies.set(TOKEN_COOKIE, token, cookieOptions(MAX_AGE));
+    // maxAge = expires_in client OU claim exp JWT OU fallback 24h
+    let maxAge = DEFAULT_MAX_AGE;
+    if (typeof body?.expires_in === "number" && body.expires_in > 0) {
+      maxAge = Math.floor(body.expires_in);
+    } else {
+      const fromJwt = parseJwtExpSeconds(token);
+      if (fromJwt != null) maxAge = fromJwt;
+    }
+
+    const res = NextResponse.json({ ok: true, max_age: maxAge });
+    res.cookies.set(TOKEN_COOKIE, token, cookieOptions(maxAge));
     res.cookies.set(
       ROLE_COOKIE,
       isSuperAdmin ? "1" : "0",
-      cookieOptions(MAX_AGE)
+      cookieOptions(maxAge)
     );
     return res;
   } catch {
