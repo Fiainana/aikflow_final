@@ -14,6 +14,10 @@ import type {
 import { useAuth } from "@/context/AuthContext";
 import { configureApiClient } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/errors";
+import {
+  profileHrefForRoles,
+  profileNameLinkClass,
+} from "@/lib/profile-links";
 import Label from "@/components/form/Label";
 import Input from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
@@ -120,7 +124,7 @@ export default function MembersPage() {
             Membres
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Utilisateurs et rôles du club (multi-rôles possible)
+            Cliquez sur un nom pour ouvrir le détail du profil
           </p>
         </div>
         <Button
@@ -147,8 +151,20 @@ export default function MembersPage() {
       {created && (
         <div className="rounded-xl border border-brand-200 bg-brand-25 p-4 dark:border-brand-800 dark:bg-brand-500/10">
           <p className="text-sm font-medium text-gray-900 dark:text-white">
-            Membre enregistré : {created.user.first_name}{" "}
-            {created.user.last_name} ({created.role.replace(/_/g, " ")})
+            Membre enregistré :{" "}
+            {profileHrefForRoles(created.user.id, [created.role]) ? (
+              <Link
+                href={profileHrefForRoles(created.user.id, [created.role])!}
+                className={profileNameLinkClass}
+              >
+                {created.user.first_name} {created.user.last_name}
+              </Link>
+            ) : (
+              <>
+                {created.user.first_name} {created.user.last_name}
+              </>
+            )}{" "}
+            ({created.role.replace(/_/g, " ")})
           </p>
           {created.generated_password && (
             <p className="mt-2 text-sm text-brand-800 dark:text-brand-300">
@@ -289,10 +305,20 @@ export default function MembersPage() {
               {filtered.map((row) => {
                 const isAthlete = row.roles.includes("ATHLETE");
                 const isStaff = row.roles.some((r) => STAFF_ROLES.has(r));
+                const href = profileHrefForRoles(row.user.id, row.roles);
+                const displayName = `${row.user.first_name} ${row.user.last_name}`;
                 return (
-                  <tr key={row.user.id}>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
-                      {row.user.first_name} {row.user.last_name}
+                  <tr key={row.user.id} className="hover:bg-gray-50/80 dark:hover:bg-white/[0.02]">
+                    <td className="px-4 py-3 text-sm">
+                      {href ? (
+                        <Link href={href} className={profileNameLinkClass}>
+                          {displayName}
+                        </Link>
+                      ) : (
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {displayName}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                       {row.user.email}
