@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   membersListMembersByUser,
@@ -25,7 +25,8 @@ import Label from "@/components/form/Label";
 import Input from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
 
-const CLUB_ROLES: { value: RoleEnum; label: string }[] = [
+/** Rôles assignables par un Club Admin (MARKETPLACE_PRO réservé Super Admin). */
+const CLUB_ASSIGNABLE_ROLES: { value: RoleEnum; label: string }[] = [
   { value: "ATHLETE", label: "Athlète" },
   { value: "COACH", label: "Coach" },
   { value: "ASSISTANT_COACH", label: "Coach adjoint" },
@@ -33,7 +34,6 @@ const CLUB_ROLES: { value: RoleEnum; label: string }[] = [
   { value: "CLUB_ADMIN", label: "Admin club" },
   { value: "PARENT", label: "Parent" },
   { value: "HEALTH_PRO", label: "Pro santé" },
-  { value: "MARKETPLACE_PRO", label: "Marketplace" },
 ];
 
 const STAFF_ROLES = new Set(["COACH", "ASSISTANT_COACH", "STAFF", "CLUB_ADMIN"]);
@@ -62,6 +62,8 @@ export default function MembersPage() {
   const [extraRole, setExtraRole] = useState<RoleEnum>("PARENT");
   const [roleBusy, setRoleBusy] = useState(false);
 
+  const assignableRoles = useMemo(() => CLUB_ASSIGNABLE_ROLES, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     configureApiClient();
@@ -85,6 +87,10 @@ export default function MembersPage() {
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
+    if (role === "MARKETPLACE_PRO") {
+      setError("Seul un Super Admin peut assigner le rôle MARKETPLACE_PRO.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setCreated(null);
@@ -116,6 +122,10 @@ export default function MembersPage() {
   const handleAddRole = async (e: FormEvent) => {
     e.preventDefault();
     if (!roleModal) return;
+    if (extraRole === "MARKETPLACE_PRO") {
+      setError("Seul un Super Admin peut assigner le rôle MARKETPLACE_PRO.");
+      return;
+    }
     setRoleBusy(true);
     setError(null);
     configureApiClient();
@@ -244,10 +254,11 @@ export default function MembersPage() {
             <div className="sm:col-span-2">
               <Label>Rôle *</Label>
               <select className={selectClass} value={role} onChange={(e) => setRole(e.target.value as RoleEnum)} disabled={submitting}>
-                {CLUB_ROLES.map((r) => (
+                {assignableRoles.map((r) => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-gray-500">MARKETPLACE_PRO : Super Admin uniquement</p>
             </div>
           </div>
           <Button type="submit" size="sm" disabled={submitting}>
@@ -262,7 +273,7 @@ export default function MembersPage() {
             Ajouter un rôle — {roleModal.user.first_name} {roleModal.user.last_name}
           </h2>
           <select className={selectClass} value={extraRole} onChange={(e) => setExtraRole(e.target.value as RoleEnum)} disabled={roleBusy}>
-            {CLUB_ROLES.filter((r) => !roleModal.roles.includes(r.value)).map((r) => (
+            {assignableRoles.filter((r) => !roleModal.roles.includes(r.value)).map((r) => (
               <option key={r.value} value={r.value}>{r.label}</option>
             ))}
           </select>
@@ -335,7 +346,7 @@ export default function MembersPage() {
                       <div className="inline-flex flex-wrap justify-end gap-2">
                         <button type="button" className="font-medium text-brand-600 hover:underline" onClick={() => {
                           setRoleModal(row);
-                          const available = CLUB_ROLES.find((r) => !row.roles.includes(r.value));
+                          const available = assignableRoles.find((r) => !row.roles.includes(r.value));
                           if (available) setExtraRole(available.value);
                         }}>
                           + Rôle
