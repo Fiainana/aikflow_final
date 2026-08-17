@@ -16,6 +16,8 @@ export function profileHrefForRoles(
   if (!userId) return null;
   if (roles.includes("ATHLETE")) return `/members/${userId}/athlete`;
   if (roles.some((r) => STAFF_ROLES.has(r))) return `/members/${userId}/staff`;
+  if (roles.includes("PARENT")) return `/members/${userId}/parent`;
+  if (roles.includes("HEALTH_PRO")) return `/members/${userId}/health-pro`;
   return null;
 }
 
