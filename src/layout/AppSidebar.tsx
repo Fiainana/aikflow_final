@@ -7,10 +7,15 @@ import { usePathname } from "next/navigation";
 import { useSidebar } from "../context/SidebarContext";
 import { useAuth } from "@/context/AuthContext";
 import {
+  AlertIcon,
+  BoltIcon,
   BoxCubeIcon,
   CalenderIcon,
+  ChatIcon,
   ChevronDownIcon,
+  DocsIcon,
   GridIcon,
+  GroupIcon,
   HorizontaLDots,
   PieChartIcon,
   TableIcon,
@@ -24,11 +29,17 @@ type NavItem = {
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
+/** Navigation club — alignée modules backend + permissions staff. */
 const clubNavItems: NavItem[] = [
   {
-    icon: <GridIcon />,
+    icon: <BoltIcon />,
     name: "Brief du jour",
     path: "/",
+  },
+  {
+    icon: <AlertIcon />,
+    name: "Alertes",
+    path: "/alerts",
   },
   {
     icon: <PieChartIcon />,
@@ -44,7 +55,7 @@ const clubNavItems: NavItem[] = [
     path: "/teams",
   },
   {
-    icon: <UserCircleIcon />,
+    icon: <GroupIcon />,
     name: "Membres",
     subItems: [
       { name: "Liste", path: "/members" },
@@ -55,6 +66,16 @@ const clubNavItems: NavItem[] = [
     icon: <CalenderIcon />,
     name: "Calendrier",
     path: "/calendar",
+  },
+  {
+    icon: <ChatIcon />,
+    name: "Messagerie",
+    path: "/messages",
+  },
+  {
+    icon: <DocsIcon />,
+    name: "Safeguarding",
+    path: "/safeguarding",
   },
   {
     icon: <UserCircleIcon />,
@@ -92,24 +113,26 @@ const AppSidebar: React.FC = () => {
   }, []);
 
   const showRoleNav = ready && !authLoading;
-  const navItems = showRoleNav && isSuperAdmin ? superAdminNavItems : clubNavItems;
-  const homeHref =
-    showRoleNav && isSuperAdmin ? "/admin/clubs" : "/";
-  const sectionLabel =
-    showRoleNav && isSuperAdmin ? "Super Admin" : "Club";
+  const navItems =
+    showRoleNav && isSuperAdmin ? superAdminNavItems : clubNavItems;
+  const homeHref = showRoleNav && isSuperAdmin ? "/admin/clubs" : "/";
+  const sectionLabel = showRoleNav && isSuperAdmin ? "Super Admin" : "Club";
 
   const [openSubmenu, setOpenSubmenu] = useState<{
     type: "main" | "others";
     index: number;
   } | null>(null);
   const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>(
-    {}
+    {},
   );
   const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const isActive = useCallback(
-    (path: string) => path === pathname,
-    [pathname]
+    (path: string) => {
+      if (path === "/") return pathname === "/";
+      return path === pathname || pathname.startsWith(`${path}/`);
+    },
+    [pathname],
   );
 
   const handleSubmenuToggle = (index: number, menuType: "main" | "others") => {
@@ -124,7 +147,10 @@ const AppSidebar: React.FC = () => {
     navItems.forEach((nav, index) => {
       if (nav.subItems) {
         nav.subItems.forEach((subItem) => {
-          if (isActive(subItem.path) || pathname.startsWith(subItem.path + "/")) {
+          if (
+            isActive(subItem.path) ||
+            pathname.startsWith(subItem.path + "/")
+          ) {
             setOpenSubmenu({ type: "main", index });
             submenuMatched = true;
           }
@@ -148,7 +174,7 @@ const AppSidebar: React.FC = () => {
 
   const renderMenuItems = (
     items: NavItem[],
-    menuType: "main" | "others"
+    menuType: "main" | "others",
   ) => (
     <ul className="flex flex-col gap-4">
       {items.map((nav, index) => (
@@ -169,7 +195,8 @@ const AppSidebar: React.FC = () => {
             >
               <span
                 className={` ${
-                  openSubmenu?.type === menuType && openSubmenu?.index === index
+                  openSubmenu?.type === menuType &&
+                  openSubmenu?.index === index
                     ? "menu-item-icon-active"
                     : "menu-item-icon-inactive"
                 }`}
@@ -221,7 +248,8 @@ const AppSidebar: React.FC = () => {
               className="overflow-hidden transition-all duration-300"
               style={{
                 height:
-                  openSubmenu?.type === menuType && openSubmenu?.index === index
+                  openSubmenu?.type === menuType &&
+                  openSubmenu?.index === index
                     ? `${subMenuHeight[`${menuType}-${index}`]}px`
                     : "0px",
               }}
